@@ -23,13 +23,15 @@ console.log('Umgebungsvariablen:', {
 });
 
 // Middleware
+// Middleware
 app.use(cors({
   origin: [
-    'http://localhost:3000', // for development
-    'https://your-frontend-domain.com', // replace with your actual frontend URL
+    'http://localhost:3000', // for local development
+    'https://www.rechtly.de', // ✅ your live frontend domain
   ],
   credentials: true
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
