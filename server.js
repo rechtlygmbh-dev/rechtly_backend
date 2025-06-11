@@ -1,4 +1,6 @@
-require('dotenv').config({ path: __dirname + '/.env' });
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config({ path: __dirname + '/.env' });
+}
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -22,7 +24,10 @@ console.log('Umgebungsvariablen:', {
 
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: [
+    'http://localhost:3000', // for development
+    'https://your-frontend-domain.com', // replace with your actual frontend URL
+  ],
   credentials: true
 }));
 app.use(express.json());
