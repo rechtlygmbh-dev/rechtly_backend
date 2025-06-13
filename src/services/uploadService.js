@@ -10,15 +10,14 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024 // 5MB
   },
   fileFilter: (req, file, cb) => {
-    console.log('Processing file:', file.originalname, 'type:', file.mimetype);
     // Erlaube nur Bilder und PDFs
     if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
       cb(null, true);
     } else {
-      cb(new Error(`Dateityp nicht erlaubt: ${file.mimetype}`));
+      cb(new Error('Nur Bilder und PDFs sind erlaubt'));
     }
   }
-}).array('files', 10); // Limit to 10 files
+});
 
 // Generiere eine eindeutige Anfrage-ID
 const generateAnfrageId = () => {
@@ -38,35 +37,19 @@ const generateSafeFilename = (originalname) => {
 
 class UploadService {
   static getMulterUpload() {
-    return (req, res, next) => {
-      upload(req, res, (err) => {
-        if (err instanceof multer.MulterError) {
-          console.error('Multer error:', err);
-          return res.status(400).json({
-            success: false,
-            error: 'Fehler beim Datei-Upload',
-            details: err.message
-          });
-        } else if (err) {
-          console.error('Unknown upload error:', err);
-          return res.status(500).json({
-            success: false,
-            error: 'Unbekannter Fehler beim Upload',
-            details: err.message
-          });
-        }
-        next();
-      });
-    };
+    return upload.array('files');
   }
 
   static async handleUpload(req, res) {
     try {
-      console.log('Starting upload handler');
-      console.log('Files received:', req.files?.length || 0);
-      
+      console.log('Upload request received:', {
+        files: req.files?.length || 0,
+        body: req.body,
+        headers: req.headers
+      });
+
       if (!req.files || req.files.length === 0) {
-        console.log('No files found in request');
+        console.warn('No files found in request');
         return res.status(400).json({
           success: false,
           error: 'Keine Dateien zum Hochladen gefunden'
@@ -75,20 +58,22 @@ class UploadService {
 
       const anfrageId = req.body.anfrageId || generateAnfrageId();
       const dokumentTyp = req.body.dokumentTyp || 'BUSSGELD';
-      
-      console.log('Processing upload for anfrageId:', anfrageId, 'type:', dokumentTyp);
+
+      console.log('Processing upload:', { anfrageId, dokumentTyp });
 
       const uploadedFiles = [];
 
       for (const file of req.files) {
-        console.log('Processing file:', file.originalname);
-        
-        const safeFilename = generateSafeFilename(file.originalname);
-        const minioPath = `anfragen/${anfrageId}/${dokumentTyp}/${safeFilename}`;
-
-        console.log('Uploading to MinIO path:', minioPath);
-
         try {
+          console.log('Processing file:', {
+            originalname: file.originalname,
+            size: file.size,
+            mimetype: file.mimetype
+          });
+
+          const safeFilename = generateSafeFilename(file.originalname);
+          const minioPath = `anfragen/${anfrageId}/${dokumentTyp}/${safeFilename}`;
+
           // Upload zu MinIO
           await minioClient.putObject(
             BUCKET_NAME,
@@ -100,7 +85,7 @@ class UploadService {
             }
           );
 
-          console.log('Successfully uploaded to MinIO');
+          console.log('File uploaded to MinIO:', minioPath);
 
           // Speichere Metadaten in MongoDB
           const document = new Document({
@@ -120,7 +105,7 @@ class UploadService {
           });
 
           await document.save();
-          console.log('Saved document metadata to MongoDB');
+          console.log('Document metadata saved to MongoDB:', document._id);
 
           uploadedFiles.push({
             id: document._id,
@@ -131,8 +116,8 @@ class UploadService {
             size: file.size
           });
         } catch (fileError) {
-          console.error('Error processing file:', file.originalname, fileError);
-          // Continue with other files even if one fails
+          console.error('Error processing individual file:', fileError);
+          // Continue with next file instead of failing entire upload
           continue;
         }
       }
@@ -140,11 +125,16 @@ class UploadService {
       if (uploadedFiles.length === 0) {
         return res.status(500).json({
           success: false,
-          error: 'Keine Dateien konnten hochgeladen werden'
+          error: 'Keine Dateien konnten hochgeladen werden',
+          details: 'Alle Uploads sind fehlgeschlagen'
         });
       }
 
-      console.log('Upload completed successfully');
+      console.log('Upload completed successfully:', {
+        filesCount: uploadedFiles.length,
+        anfrageId
+      });
+
       return res.json({
         success: true,
         files: uploadedFiles,
@@ -153,6 +143,7 @@ class UploadService {
 
     } catch (error) {
       console.error('Upload-Fehler:', error);
+      console.error('Stack trace:', error.stack);
       return res.status(500).json({
         success: false,
         error: 'Fehler beim Hochladen der Dateien',

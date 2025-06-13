@@ -10,25 +10,16 @@ const anfrageRoutes = require('./src/routes/anfrage');
 const uploadRoutes = require('./src/routes/upload');
 const { minioClient, BUCKET_NAME } = require('./src/config/config');
 
-// Add error handling middleware for uploads
-const multer = require('multer');
-const upload = multer({
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-  }
-}).array('files', 10); // Allow up to 10 files
-
-// Custom error handling middleware for multer
 const app = express();
-app.use((err, req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    return res.status(400).json({
-      success: false,
-      message: 'File upload error',
-      error: err.message
-    });
-  }
-  next(err);
+
+// Debug: Überprüfe Umgebungsvariablen
+console.log('Umgebungsvariablen:', {
+  MONGODB_URI: process.env.MONGODB_URI ? 'Vorhanden' : 'Fehlt',
+  MINIO_ENDPOINT: process.env.MINIO_ENDPOINT ? 'Vorhanden' : 'Fehlt',
+  MINIO_PORT: process.env.MINIO_PORT ? 'Vorhanden' : 'Fehlt',
+  MINIO_ACCESS_KEY: process.env.MINIO_ACCESS_KEY ? 'Vorhanden' : 'Fehlt',
+  MINIO_SECRET_KEY: process.env.MINIO_SECRET_KEY ? 'Vorhanden' : 'Fehlt',
+  MINIO_BUCKET_NAME: process.env.MINIO_BUCKET_NAME ? 'Vorhanden' : 'Fehlt'
 });
 
 // Middleware
@@ -36,14 +27,15 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'https://www.rechtly.de',
-    'https://rechtly.de'
+    'https://rechtly.de'  // Add non-www version
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  credentials: true,
+  maxAge: 86400 // Cache preflight requests for 24 hours
 }));
 
-// Handle OPTIONS preflight requests
+// Add OPTIONS handler for preflight requests
 app.options('*', cors());
 
 app.use(express.json());
@@ -97,9 +89,9 @@ const startServer = async () => {
     }
 
     // Routes
-    app.use('/api/upload', cors(), uploadRoutes);
-    app.use('/api/bussgeld', cors(), bussgeldRoutes);
-    app.use('/api/anfrage', cors(), anfrageRoutes);
+    app.use('/api/bussgeld', bussgeldRoutes);
+    app.use('/api/anfrage', anfrageRoutes);
+    app.use('/api/upload', uploadRoutes);
 
     // Statische Dateien
     app.use(express.static(path.join(__dirname, '../build')));
@@ -110,10 +102,16 @@ const startServer = async () => {
       res.sendFile(path.join(__dirname, '../build/index.html'));
     });
 
-    // Error Handler
+    // Add error logging middleware
     app.use((err, req, res, next) => {
-      console.error(err.stack);
-      res.status(500).json({
+      console.error('Global error handler:', err);
+      console.error('Request details:', {
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body: req.body
+      });
+      res.status(err.status || 500).json({
         success: false,
         message: 'Ein Fehler ist aufgetreten',
         error: process.env.NODE_ENV === 'development' ? err.message : undefined
