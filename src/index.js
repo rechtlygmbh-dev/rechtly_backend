@@ -14,8 +14,12 @@ app.use(cookieParser());
 
 // CORS-Konfiguration
 app.use(cors({
-  origin: 'http://localhost:3000', // ggf. an deine Frontend-URL anpassen
-  credentials: true
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://www.rechtly.de', 'https://rechtly.de'] 
+    : ['http://localhost:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 
 // Statische Dateien
@@ -25,7 +29,7 @@ app.use('/assets', express.static(path.join(__dirname, '../public/assets')));
 const anfrageRoute = require('./routes/anfrage');
 app.use('/api/anfrage', anfrageRoute);
 
-const uploadRoute = require('./routes/uploads');
+const uploadRoute = require('./routes/upload');
 app.use('/api/upload', uploadRoute);
 
 app.get('/test', (req, res) => {
