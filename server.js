@@ -25,18 +25,11 @@ console.log('Umgebungsvariablen:', {
 // Middleware
 app.use(cors({
   origin: [
-    'http://localhost:3000',
-    'https://www.rechtly.de',
-    'https://rechtly.de'  // Add non-www version
+    'http://localhost:3000', // for local development
+    'https://www.rechtly.de', // ✅ your live frontend domain
   ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-  credentials: true,
-  maxAge: 86400 // Cache preflight requests for 24 hours
+  credentials: true
 }));
-
-// Add OPTIONS handler for preflight requests
-app.options('*', cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -102,16 +95,10 @@ const startServer = async () => {
       res.sendFile(path.join(__dirname, '../build/index.html'));
     });
 
-    // Add error logging middleware
+    // Error Handler
     app.use((err, req, res, next) => {
-      console.error('Global error handler:', err);
-      console.error('Request details:', {
-        method: req.method,
-        url: req.url,
-        headers: req.headers,
-        body: req.body
-      });
-      res.status(err.status || 500).json({
+      console.error(err.stack);
+      res.status(500).json({
         success: false,
         message: 'Ein Fehler ist aufgetreten',
         error: process.env.NODE_ENV === 'development' ? err.message : undefined
