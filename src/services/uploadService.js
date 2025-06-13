@@ -10,14 +10,15 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024 // 5MB
   },
   fileFilter: (req, file, cb) => {
+    console.log('Processing file:', file.originalname, 'type:', file.mimetype);
     // Erlaube nur Bilder und PDFs
     if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
       cb(null, true);
     } else {
-      cb(new Error('Nur Bilder und PDFs sind erlaubt'));
+      cb(new Error(`Dateityp nicht erlaubt: ${file.mimetype}`));
     }
   }
-});
+}).array('files', 10); // Limit to 10 files
 
 // Generiere eine eindeutige Anfrage-ID
 const generateAnfrageId = () => {
@@ -37,12 +38,35 @@ const generateSafeFilename = (originalname) => {
 
 class UploadService {
   static getMulterUpload() {
-    return upload.array('files');
+    return (req, res, next) => {
+      upload(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+          console.error('Multer error:', err);
+          return res.status(400).json({
+            success: false,
+            error: 'Fehler beim Datei-Upload',
+            details: err.message
+          });
+        } else if (err) {
+          console.error('Unknown upload error:', err);
+          return res.status(500).json({
+            success: false,
+            error: 'Unbekannter Fehler beim Upload',
+            details: err.message
+          });
+        }
+        next();
+      });
+    };
   }
 
   static async handleUpload(req, res) {
     try {
+      console.log('Starting upload handler');
+      console.log('Files received:', req.files?.length || 0);
+      
       if (!req.files || req.files.length === 0) {
+        console.log('No files found in request');
         return res.status(400).json({
           success: false,
           error: 'Keine Dateien zum Hochladen gefunden'
@@ -50,54 +74,77 @@ class UploadService {
       }
 
       const anfrageId = req.body.anfrageId || generateAnfrageId();
-      const dokumentTyp = req.body.dokumentTyp || 'BUSSGELD'; // Standard ist BUSSGELD
+      const dokumentTyp = req.body.dokumentTyp || 'BUSSGELD';
+      
+      console.log('Processing upload for anfrageId:', anfrageId, 'type:', dokumentTyp);
 
       const uploadedFiles = [];
 
       for (const file of req.files) {
+        console.log('Processing file:', file.originalname);
+        
         const safeFilename = generateSafeFilename(file.originalname);
         const minioPath = `anfragen/${anfrageId}/${dokumentTyp}/${safeFilename}`;
 
-        // Upload zu MinIO
-        await minioClient.putObject(
-          BUCKET_NAME,
-          minioPath,
-          file.buffer,
-          {
-            'Content-Type': file.mimetype,
-            'Content-Length': file.size
-          }
-        );
+        console.log('Uploading to MinIO path:', minioPath);
 
-        // Speichere Metadaten in MongoDB
-        const document = new Document({
-          anfrageId,
-          art: dokumentTyp,
-          kontakt: {
-            name: req.body.name || '',
-            email: req.body.email || '',
-            telefon: req.body.telefon || ''
-          },
-          dokumente: [{
-            typ: dokumentTyp,
+        try {
+          // Upload zu MinIO
+          await minioClient.putObject(
+            BUCKET_NAME,
+            minioPath,
+            file.buffer,
+            {
+              'Content-Type': file.mimetype,
+              'Content-Length': file.size
+            }
+          );
+
+          console.log('Successfully uploaded to MinIO');
+
+          // Speichere Metadaten in MongoDB
+          const document = new Document({
+            anfrageId,
+            art: dokumentTyp,
+            kontakt: {
+              name: req.body.name || '',
+              email: req.body.email || '',
+              telefon: req.body.telefon || ''
+            },
+            dokumente: [{
+              typ: dokumentTyp,
+              filename: safeFilename,
+              pfad: minioPath,
+              uploadDate: new Date()
+            }]
+          });
+
+          await document.save();
+          console.log('Saved document metadata to MongoDB');
+
+          uploadedFiles.push({
+            id: document._id,
+            originalname: file.originalname,
             filename: safeFilename,
-            pfad: minioPath,
-            uploadDate: new Date()
-          }]
-        });
+            path: minioPath,
+            mimetype: file.mimetype,
+            size: file.size
+          });
+        } catch (fileError) {
+          console.error('Error processing file:', file.originalname, fileError);
+          // Continue with other files even if one fails
+          continue;
+        }
+      }
 
-        await document.save();
-
-        uploadedFiles.push({
-          id: document._id,
-          originalname: file.originalname,
-          filename: safeFilename,
-          path: minioPath,
-          mimetype: file.mimetype,
-          size: file.size
+      if (uploadedFiles.length === 0) {
+        return res.status(500).json({
+          success: false,
+          error: 'Keine Dateien konnten hochgeladen werden'
         });
       }
 
+      console.log('Upload completed successfully');
       return res.json({
         success: true,
         files: uploadedFiles,

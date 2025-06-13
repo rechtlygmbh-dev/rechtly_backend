@@ -17,14 +17,7 @@ const app = express();
 
 // Middleware
 app.use(helmet()); // Sicherheits-Header
-app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://www.rechtly.de', 'https://rechtly.de'] 
-    : ['http://localhost:3000'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
-}));
+app.use(cors()); // CORS-Unterstützung
 app.use(express.json()); // JSON-Parser
 app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } })); // Logging
 
